@@ -1,0 +1,182 @@
+@ServerURL = http://localhost:8080
+@Authorization = Bearer service
+@UserToken = aad6fbcfbc893eec0fa65c905a9404ba
+
+POST {{ServerURL}}/api/account/login
+Authorization: {{Authorization}}
+Content-Type: application/json
+
+{
+    "client_id":"service",
+    "username":"serviceadmin@email.com",
+    "password":"KoEEBfC/kRLCMfXUrtI/3TlMlJLouQYf2rop1vCuNTY=",
+    "grant_type":"password",
+    "scope":"",
+    "client_secret":"secret"
+}
+
+###
+
+POST {{ServerURL}}/api/account/login
+Authorization: {{Authorization}}
+Content-Type: application/json
+
+{
+    "client_id":"service",
+    "username":"serviceadmin@email.com",
+    "password":"kunanon1",
+    "grant_type":"lamysri1",
+    "scope":"",
+    "client_secret":"secret"
+}
+
+###
+Post {{ServerURL}}/api/account/userinfo
+Authorization: {{Authorization}}
+Content-Type: application/json
+
+{
+    "client_id":"service",
+    "user_token":"{{UserToken}}"
+}
+###
+Post {{ServerURL}}/api/account/refresh_token
+Authorization: {{Authorization}}
+Content-Type: application/json
+
+{
+    "client_id":"service",
+    "user_token":"4cc5ee2fce155ae5f43f6f21cbc572ca"
+}
+###
+Post {{ServerURL}}/api/account/create_user
+Authorization: {{Authorization}}
+Content-Type: application/json
+
+{
+    "client_id": "service",
+    "email":"cop@email.com",
+    "username":"kunanon",
+    "password":"lamysri",
+    "firstname":"kunanon",
+    "lastname":"lamysri",
+    "role":"\"webuser\"",
+    "status" : "ACTIVE",
+    "otp_status": null,
+    "pin" : null,
+    "user_id" : "cop",
+    "mobile_no" : "0909090909",
+    "mobile_country_code" : "66",
+    "citizen_id" : "1100101010101",
+    "passport_no" : null,
+    "id_type" : "citizen_id",
+    "date_of_birth" : "1994-04-13"
+}
+
+###
+Post {{ServerURL}}/api/account/create_user
+Authorization: {{Authorization}}
+Content-Type: application/json
+
+{
+    "client_id": "webuser",
+    "email":"cop3@email.com",
+    "username":"kunanon4",
+    "password":"lamysri4",
+    "firstname":"kunanon4",
+    "lastname":"lamysri4",
+    "role":"\"webuser\"",
+    "status" : "INACTIVE",
+    "otp_status": null,
+    "pin" : null,
+    "user_id" : "cop4",
+    "mobile_no" : "4444444444",
+    "mobile_country_code" : "66",
+    "citizen_id" : "4444444444",
+    "passport_no" : null,
+    "id_type" : "citizen_id",
+    "date_of_birth" : "1994-08-13"
+}
+
+###
+
+Post {{ServerURL}}/api/account/update_user/cop
+Authorization: {{Authorization}}
+Content-Type: application/json
+
+{
+
+    "client_id": "string",
+	"email":null,
+	"username":null,
+	"password":null,
+	"firstname":null,
+	"lastname":null,
+	"role":"\"webuser\"",
+    "status" : null,
+    "otp_status": null,
+    "pin" : null,
+    "user_id" : null,
+    "mobile_no" : null,
+    "mobile_country_code" : null,
+    "citizen_id" : null,
+    "passport_no" : null,
+    "id_type" : null,
+    "date_of_birth" : null
+
+}
+###
+
+Post {{ServerURL}}/api/account/delete_user/cop
+Authorization: {{Authorization}}
+Content-Type: application/json
+
+{
+
+    "client_id": "service"
+
+}
+
+###
+
+Post {{ServerURL}}/api/account/set_password/cop
+Authorization: {{Authorization}}
+Content-Type: application/json
+
+{
+
+    "client_id": "service",
+    "password" : "lamysri"
+
+
+}
+
+###
+
+Post {{ServerURL}}/api/account/list_userinfo
+Authorization: {{Authorization}}
+Content-Type: application/json
+
+{
+
+    "client_id":"webuser",
+	"username": null, 
+	"user_id":null, 
+	"firstname": null, 
+	"lastname":null, 
+	"cif_no" : null, 
+	"id_no":null, 
+	"mobile_no":null, 
+	"email":null, 
+	"register_date_from" :"2021-09-02 11:57:17", 
+	"register_date_to" : null, 
+	"status": null, 
+	"otp_status" : null,
+    "pin_status" : null,
+    "page":1,
+    "row_per_page":0,
+    "include_delete":false
+
+
+
+}
