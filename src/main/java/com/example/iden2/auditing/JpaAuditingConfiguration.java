@@ -16,10 +16,10 @@ public class JpaAuditingConfiguration {
     public AuditorAware<String> auditorProvider() {
 
         return () -> {
-            var username = (String) RequestContextHolder.currentRequestAttributes().getAttribute("username",
-                    RequestAttributes.SCOPE_REQUEST);
+            var clientIdApproved = (String) RequestContextHolder.currentRequestAttributes()
+                    .getAttribute("clientIdApproved", RequestAttributes.SCOPE_REQUEST);
 
-            return Optional.ofNullable(username);
+            return Optional.ofNullable(clientIdApproved);
         };
     }
 }

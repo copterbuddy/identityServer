@@ -13,19 +13,19 @@ import org.springframework.stereotype.Component;
 @Component
 public class GenerateUtil {
 
-    public String generateKey(int keyLen) {
+    public String generateKey(int keyLen) throws Exception {
         SecureRandom random = new SecureRandom();
         byte bytes[] = new byte[keyLen / 8];
         random.nextBytes(bytes);
         return DatatypeConverter.printHexBinary(bytes).toLowerCase();
     }
 
-    public String setStringRole(String item) {
+    public String setStringRole(String item) throws Exception {
         List<String> wordList = Arrays.asList(item.toString());
         return wordList.toString();
     }
 
-    public String[] getStringRole(String item) {
+    public String[] getStringRole(String item) throws Exception {
         String rawString = "";
         String[] response;
         StringBuffer sb = new StringBuffer();

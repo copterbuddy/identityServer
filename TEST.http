@@ -1,6 +1,9 @@
 @ServerURL = http://localhost:8080
-@Authorization = Bearer service
-@UserToken = aad6fbcfbc893eec0fa65c905a9404ba
+@Authorization = Bearer {{ServieToken}} 
+@UserToken = Bearer {{Token}}
+
+@ServieToken = d463d1ac-91d3-4ac1-8dc3-85b2efc3c4b1
+@Token = 362224b32f8e43c6b51189a30ce452f7
 
 POST {{ServerURL}}/api/account/login
 Authorization: {{Authorization}}
@@ -22,21 +25,22 @@ Authorization: {{Authorization}}
 Content-Type: application/json
 
 {
-    "client_id":"service",
-    "username":"serviceadmin@email.com",
-    "password":"kunanon1",
-    "grant_type":"lamysri1",
+    "client_id":"webuser",
+    "username":"kunanon3",
+    "password":"lamysri3",
+    "grant_type":"password",
     "scope":"",
     "client_secret":"secret"
 }
 
 ###
+
 Post {{ServerURL}}/api/account/userinfo
 Authorization: {{Authorization}}
 Content-Type: application/json
 
 {
-    "client_id":"service",
+    "client_id":"webuser",
     "user_token":"{{UserToken}}"
 }
 ###
@@ -45,32 +49,33 @@ Authorization: {{Authorization}}
 Content-Type: application/json
 
 {
-    "client_id":"service",
-    "user_token":"4cc5ee2fce155ae5f43f6f21cbc572ca"
+    "client_id":"webuser",
+    "user_token":"{{UserToken}}"
 }
+
 ###
 Post {{ServerURL}}/api/account/create_user
 Authorization: {{Authorization}}
 Content-Type: application/json
 
 {
-    "client_id": "service",
-    "email":"cop@email.com",
-    "username":"kunanon",
-    "password":"lamysri",
-    "firstname":"kunanon",
-    "lastname":"lamysri",
+    "client_id": "aaa",
+    "email":"cop30@email.com",
+    "username":"kunanon30",
+    "password":"lamysri30",
+    "firstname":"kunanon30",
+    "lastname":"lamysri30",
     "role":"\"webuser\"",
     "status" : "ACTIVE",
     "otp_status": null,
     "pin" : null,
-    "user_id" : "cop",
+    "user_id" : "cop10",
     "mobile_no" : "0909090909",
     "mobile_country_code" : "66",
     "citizen_id" : "1100101010101",
     "passport_no" : null,
     "id_type" : "citizen_id",
-    "date_of_birth" : "1994-04-13"
+    "date_of_birth" : "1994-07-13"
 }
 
 ###
@@ -80,38 +85,38 @@ Content-Type: application/json
 
 {
     "client_id": "webuser",
-    "email":"cop3@email.com",
-    "username":"kunanon4",
-    "password":"lamysri4",
-    "firstname":"kunanon4",
-    "lastname":"lamysri4",
+    "email":"cop5@email.com",
+    "username":"kunanon5",
+    "password":"lamysri5",
+    "firstname":"kunanon5",
+    "lastname":"lamysri5",
     "role":"\"webuser\"",
-    "status" : "INACTIVE",
+    "status" : "ACTIVE",
     "otp_status": null,
     "pin" : null,
-    "user_id" : "cop4",
-    "mobile_no" : "4444444444",
+    "user_id" : "cop5",
+    "mobile_no" : "5555555555",
     "mobile_country_code" : "66",
-    "citizen_id" : "4444444444",
+    "citizen_id" : "5555555555",
     "passport_no" : null,
     "id_type" : "citizen_id",
-    "date_of_birth" : "1994-08-13"
+    "date_of_birth" : "1994-09-13"
 }
 
 ###
 
-Post {{ServerURL}}/api/account/update_user/cop
+Post {{ServerURL}}/api/account/update_user/cop10
 Authorization: {{Authorization}}
 Content-Type: application/json
 
 {
 
-    "client_id": "string",
+    "client_id": "webuser",
 	"email":null,
 	"username":null,
 	"password":null,
-	"firstname":null,
-	"lastname":null,
+	"firstname":"kunanonChange100",
+	"lastname":"lamysriChange100",
 	"role":"\"webuser\"",
     "status" : null,
     "otp_status": null,
@@ -127,28 +132,23 @@ Content-Type: application/json
 }
 ###
 
-Post {{ServerURL}}/api/account/delete_user/cop
+Post {{ServerURL}}/api/account/set_password/cop20
 Authorization: {{Authorization}}
 Content-Type: application/json
 
 {
-
-    "client_id": "service"
-
+    "client_id": "service",
+    "password" : "lamysri100settpassword"
 }
 
 ###
 
-Post {{ServerURL}}/api/account/set_password/cop
+Post {{ServerURL}}/api/account/delete_user/cop10
 Authorization: {{Authorization}}
 Content-Type: application/json
 
 {
-
-    "client_id": "service",
-    "password" : "lamysri"
-
-
+    "client_id": "service"
 }
 
 ###
@@ -160,7 +160,7 @@ Content-Type: application/json
 {
 
     "client_id":"webuser",
-	"username": null, 
+	"username": "kunanon30", 
 	"user_id":null, 
 	"firstname": null, 
 	"lastname":null, 
@@ -168,14 +168,14 @@ Content-Type: application/json
 	"id_no":null, 
 	"mobile_no":null, 
 	"email":null, 
-	"register_date_from" :"2021-09-02 11:57:17", 
+	"register_date_from" :null, 
 	"register_date_to" : null, 
 	"status": null, 
 	"otp_status" : null,
     "pin_status" : null,
     "page":1,
     "row_per_page":0,
-    "include_delete":false
+    "include_delete":true
 
 
 

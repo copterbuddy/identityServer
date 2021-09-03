@@ -8,6 +8,7 @@ import com.example.iden2.repository.UserRepository;
 import com.example.iden2.repository.UserTokenRepository;
 import com.example.iden2.service.AccountService;
 import com.example.iden2.service.ClientsService;
+import com.example.iden2.util.DateTimeUtil;
 
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
@@ -21,6 +22,7 @@ import javax.servlet.ServletException;
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
 import java.io.IOException;
+import java.util.Date;
 import java.util.List;
 import java.util.Optional;
 
@@ -37,25 +39,8 @@ public class ApiKeyFilter extends OncePerRequestFilter {
     @Autowired
     UserTokenRepository userTokenRepository;
 
-    // @Override
-    // protected boolean shouldNotFilter(HttpServletRequest uri) throws
-    // ServletException {
-
-    // // if (uri.getRequestURI().startsWith("/api/account/login") ||
-    // uri.getRequestURI().startsWith("/api/account/login/"))
-    // // return true;
-
-    // // if (uri.getRequestURI().startsWith("/posts") ||
-    // // uri.getRequestURI().startsWith("/posts/")) return true;
-
-    // // if (uri.getRequestURI().startsWith("/demo") ||
-    // // uri.getRequestURI().startsWith("/demo/")) return true;
-    // // // if (uri.getRequestURI().startsWith("/user") ||
-    // // uri.getRequestURI().startsWith("/user/")) return true;
-
-    // // return false;
-
-    // }
+    @Autowired
+    DateTimeUtil dateTimeUtil;
 
     @Override
     protected void doFilterInternal(HttpServletRequest uri, HttpServletResponse response, FilterChain filterChain)
@@ -63,6 +48,7 @@ public class ApiKeyFilter extends OncePerRequestFilter {
 
         try {
 
+            // ValidateTokenServiceStep1
             String authorization = uri.getHeader("Authorization");
             String serviceToken = "";
 
@@ -70,15 +56,28 @@ public class ApiKeyFilter extends OncePerRequestFilter {
                 serviceToken = authorization.substring(7);
             }
 
-            // try {
+            // Get Service Token
             Optional<UserToken> optUserToken = userTokenRepository.findByToken(serviceToken.toString());
             if (optUserToken == null || optUserToken.isEmpty()) {
                 log.info("kunanonLog userToken not found serviceToken={}", serviceToken);
                 response.sendError(HttpServletResponse.SC_UNAUTHORIZED);
                 return;
             }
-
             UserToken userToken = optUserToken.get();
+
+            // Check Service Token Expire
+            Date serviceTokenExpired = userToken.getExpiredate();
+            Date dateTimeNow = new Date();
+            Date expiredTime = dateTimeUtil.GetDateInFormatThai(serviceTokenExpired);
+            Date nowTime = dateTimeUtil.GetDateInFormatThai(dateTimeNow);
+            if (expiredTime.before(nowTime)) {
+                log.info("kunanonLog ValidateTokenServiceStep1 serviceToken Expired = {}",
+                        dateTimeUtil.GetDateInFormatThaiString(expiredTime));
+                response.sendError(HttpServletResponse.SC_UNAUTHORIZED);
+                return;
+
+            }
+
             Optional<Clients> optClient = clientsRepository.findById(userToken.getRefclientid());
             if (optClient == null || optClient.isEmpty()) {
                 log.info("kunanonLog Client not found serviceToken={}", serviceToken);
@@ -106,7 +105,14 @@ public class ApiKeyFilter extends OncePerRequestFilter {
                 return;
             }
 
-            // uri.setAttribute("clientIdApproved", optUser.get().getClientid());
+            if (StringUtil.isNullOrEmpty(clients.getClientname())
+                    || StringUtil.isNullOrEmpty(optUser.get().getRole())) {
+                response.sendError(HttpServletResponse.SC_UNAUTHORIZED);
+                return;
+            }
+            uri.setAttribute("serviceClientId", optUser.get().getClientid());
+            uri.setAttribute("serviceName", clients.getClientname());
+            uri.setAttribute("serviceRole", optUser.get().getRole());
 
             filterChain.doFilter(uri, response);
 

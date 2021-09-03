@@ -1,12 +1,22 @@
 package com.example.iden2.service;
 
+import java.security.Timestamp;
 import java.text.DateFormat;
 import java.text.SimpleDateFormat;
+import java.time.Instant;
+import java.time.LocalDateTime;
+import java.time.ZoneId;
+import java.time.ZonedDateTime;
+import java.time.chrono.ThaiBuddhistDate;
+import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Calendar;
 import java.util.Date;
 import java.util.List;
+import java.util.Locale;
 import java.util.Optional;
+import java.util.TimeZone;
 
 import javax.persistence.EntityManager;
 import javax.persistence.Query;
@@ -31,8 +41,13 @@ import com.example.iden2.model.UserToken;
 import com.example.iden2.repository.ClientsRepository;
 import com.example.iden2.repository.UserRepository;
 import com.example.iden2.repository.UserTokenRepository;
+import com.example.iden2.util.AuthenUtil;
+import com.example.iden2.util.CustomWording;
+import com.example.iden2.util.DateTimeUtil;
+import com.example.iden2.util.ErrorWording;
 import com.example.iden2.util.GenerateUtil;
 
+import org.apache.logging.log4j.util.Strings;
 import org.modelmapper.ModelMapper;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.redis.core.RedisTemplate;
@@ -61,10 +76,22 @@ public class AccountService {
     private EntityManager em;
 
     @Autowired
-    private GenerateUtil generateUtil;
+    private GenerateUtil getnerateUtil;
+
+    @Autowired
+    DateTimeUtil dateTimeUtil;
 
     @Autowired
     RedisTemplate<String, Object> redisTemplate;
+
+    @Autowired
+    AuthenUtil authenUtil;
+
+    @Autowired
+    CustomWording cw;
+
+    @Autowired
+    ErrorWording er;
 
     // @Autowired
     // private EntityManager em;
@@ -74,6 +101,15 @@ public class AccountService {
         LoginResponse response = new LoginResponse();
 
         try {
+            String serviceRole = (String) RequestContextHolder.currentRequestAttributes().getAttribute("serviceRole",
+                    RequestAttributes.SCOPE_REQUEST);
+
+            // CheckRole
+            String checkRole = authenUtil.CheckRole(serviceRole, clientId);
+            if (!StringUtil.isNullOrEmpty(checkRole)) {
+                log.info("kunanonLog login Service invalid role");
+                return null;
+            }
 
             // Check existingClient from input
             Optional<Clients> optClients = clientsRepository.findByClientid(clientId);
@@ -84,23 +120,27 @@ public class AccountService {
             Clients clients = optClients.get();
 
             // Validate Username , Password in UserTable
-            User user = em
-                    .createQuery("select u from User u where u.username = '" + username + "' AND u.password = '"
-                            + password + "' AND u.status = 'ACTIVE' AND u.passwordstatus = 'ACTIVE'", User.class)
-                    .getResultList().stream().findFirst().orElse(null);
+            User user = em.createQuery(
+                    "select u from User u where u.username = '" + username + "' AND u.password = '" + password
+                            + "' AND u.status = '" + cw.ACTIVE + "' AND u.passwordstatus = '" + cw.ACTIVE + "' ",
+                    User.class).getResultList().stream().findFirst().orElse(null);
             if (user == null) {
                 log.info("kunanonLog login Service occur : user null ");
                 return null;
             }
 
-            RequestContextHolder.currentRequestAttributes().setAttribute("username", user.getUsername(),
-                    RequestAttributes.SCOPE_REQUEST);
+            if (!user.getClientid().equals(clientId)) {
+                log.info("kunanonLog login Service occur : service is not match");
+                return null;
+            }
+
+            // RequestContextHolder.currentRequestAttributes().setAttribute("clientName",
+            // user.getUsername(),
+            // RequestAttributes.SCOPE_REQUEST);
 
             // Create Token
-            String token = generateUtil.generateKey(128);
+            String token = getnerateUtil.generateKey(128);
 
-            DateFormat dateFormatter = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss");
-            dateFormatter.setLenient(false);
             Date startDate = new Date();
             Date endDate = new Date();
             endDate.setMinutes(endDate.getSeconds() + clients.getConsentlifetime());
@@ -131,112 +171,93 @@ public class AccountService {
     }
 
     public UserInfoResponse userInfoSerive(String clientId, String userToken) {
-        Boolean isProcess = true;
-
-        // TODO: Validate Token Service Flow
-        var clientIdApproved = (String) RequestContextHolder.currentRequestAttributes().getAttribute("clientIdApproved",
-                RequestAttributes.SCOPE_REQUEST);
 
         UserInfoResponse response = new UserInfoResponse();
 
         try {
+
+            String serviceRole = (String) RequestContextHolder.currentRequestAttributes().getAttribute("serviceRole",
+                    RequestAttributes.SCOPE_REQUEST);
+
             // Check Parameter
             if (StringUtil.isNullOrEmpty(userToken)) {
-                response.setErrorCode("404");
-                isProcess = false;
+                log.info("kunanonLog userInfoSerive Service isNullOrEmpty userToken = {}", userToken);
+                response.setErrorCode(er._001_INVALID_REQUEST);
+                return response;
             }
 
             if (StringUtil.isNullOrEmpty(clientId)) {
-                response.setErrorCode("001");
-                isProcess = false;
+                log.info("kunanonLog userInfoSerive Service isNullOrEmpty clientId = {}", clientId);
+                response.setErrorCode(er._001_INVALID_REQUEST);
+                return response;
             }
 
-            if (isProcess) {
-
-                // search token in table user_token
-                UserToken existingToken = userTokenRepository.findByToken(userToken).stream().findFirst().orElse(null);
-                if (existingToken == null) {
-                    return null;
-                }
-
-                // check client_id must equals
-                if (!clientId.equals(clientIdApproved)) {
-                    return null;
-                }
-
-                // Check from token
-                Optional<User> existingUser = userRepository.findById(existingToken.getRefuserid());
-                if (existingUser == null || existingUser.isEmpty()) {
-                    return null;
-                }
-                User user = existingUser.get();
-                // Check from input
-                // List<User> existingListUser =
-                // userRepository.findByClientid(clientsId).stream();
-                if (!user.getClientid().equals(clientId)) {
-                    return null;
-                }
-
-                // check role of userservice must have name of client_id of requester
-                List<String> roleList = Arrays.asList(user.getRole());
-
-                Boolean isRole = false;
-                for (String role : roleList) {
-                    isRole = role.toUpperCase().contains(clientId.toUpperCase());
-                    if (isRole) {
-                        break;
-                    }
-                }
-
-                if (isRole) {
-
-                    // userInfo Flow
-
-                    DateFormat dateFormat = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss");
-                    String dateOfBirth = null;
-                    String registerDate = null;
-
-                    if (user.getDateofbirth() != null) {
-                        dateOfBirth = dateFormat.format(user.getDateofbirth());
-                    }
-
-                    if (user.getRegisterdate() != null) {
-                        registerDate = dateFormat.format(user.getDateofbirth());
-                    }
-
-                    var mapper = new ModelMapper();
-                    UserDto userDto = new UserDto();
-                    userDto.setUser_id(String.valueOf(user.getId()));
-                    userDto.setName(user.getFirstname());
-                    userDto.setFamily_name(user.getLastname());
-                    userDto.setEmail(user.getEmail());
-                    userDto.setClient_id(user.getClientid());
-                    userDto.setUser_id(user.getUserid());
-                    userDto.setDate_of_birth(dateOfBirth);
-                    userDto.setMobile_no(user.getMobileno());
-                    userDto.setMobile_country_code(user.getMobilecountrycode());
-                    userDto.setStatus(user.getStatus());
-                    userDto.setOtp_status(user.getOtpstatus());
-                    userDto.setPin_status(user.getPinstatus());
-                    userDto.setCitizen_id(user.getCitizenid());
-                    userDto.setPassport_no(user.getPassportno());
-                    userDto.setId_type(user.getIdtype());
-                    userDto.setRole(generateUtil.getStringRole(user.getRole()));
-                    userDto.setRegister_date(registerDate);
-                    userDto.setCif_no(user.getCifno());
-
-                    UserDto mapped = mapper.map(userDto, UserDto.class);
-                    response.setResult(mapped);
-                    response.setErrorCode("200");
-                } else {
-                    return null;
-                }
-
+            // Validate Token Service Step 2
+            String authen_2 = authenUtil.ValidateTokenServiceStep2(userToken, clientId);
+            if (!StringUtil.isNullOrEmpty(authen_2)) {
+                return response;
             }
+
+            // checkRole
+            String checkRole = authenUtil.CheckRole(serviceRole, clientId);
+            if (!StringUtil.isNullOrEmpty(checkRole)) {
+                response.setErrorCode(checkRole);
+                return response;
+            }
+
+            // UserInfo Flow
+            Optional<UserToken> optToken = userTokenRepository.findByToken(userToken);
+            if (optToken == null || optToken.isEmpty()) {
+                log.info("kunanonLog userInfoSerive Service isNullOrEmpty userToken = {}", userToken);
+                response.setErrorCode(er._401_INVALID_SERVICE_TOKEN);
+                return response;
+            }
+            UserToken userThisToken = optToken.get();
+
+            Optional<User> optUser = userRepository.findById(userThisToken.getRefuserid());
+            if (optUser == null || optUser.isEmpty()) {
+                log.info("kunanonLog userInfoSerive Service isNullOrEmpty optUser = {}", optUser);
+                response.setErrorCode(er._401_INVALID_SERVICE_TOKEN);
+                return response;
+            }
+
+            // Check equals ClientId
+            User user = optUser.get();
+            if (!user.getClientid().equals(clientId)) {
+                log.info("kunanonLog userInfoSerive Service invalid ClientId = {} , userClientId = {}", clientId,
+                        user.getClientid());
+                response.setErrorCode(er._401_INVALID_SERVICE_TOKEN);
+                return response;
+            }
+
+            var mapper = new ModelMapper();
+            UserDto userDto = new UserDto();
+            userDto.setId(user.getId().toString());
+            userDto.setName(user.getFirstname());
+            userDto.setFamily_name(user.getLastname());
+            userDto.setEmail(user.getEmail());
+            userDto.setClient_id(user.getClientid());
+            userDto.setUser_id(user.getUserid());
+            userDto.setDate_of_birth(dateTimeUtil.GetDateInFormatThaiString(user.getDateofbirth()));
+            userDto.setMobile_no(user.getMobileno());
+            userDto.setMobile_country_code(user.getMobilecountrycode());
+            userDto.setStatus(user.getStatus());
+            userDto.setOtp_status(user.getOtpstatus());
+            userDto.setPin_status(user.getPinstatus());
+            userDto.setCitizen_id(user.getCitizenid());
+            userDto.setPassport_no(user.getPassportno());
+            userDto.setId_type(user.getIdtype());
+            userDto.setRole(getnerateUtil.getStringRole(user.getRole()));
+            userDto.setRegister_date(dateTimeUtil.GetDateInFormatThaiString(user.getRegisterdate()));
+            userDto.setCif_no(user.getCifno());
+
+            UserDto mapped = mapper.map(userDto, UserDto.class);
+            response.setResult(mapped);
+            response.setErrorCode(er._200_SUCCESS);
 
             return response;
         } catch (Exception e) {
-            response.setErrorCode("500");
+            response.setErrorCode(er._500_INTERNAL_SERVER_ERROR);
             log.info("kunanonLog userInfoSerive Service occur : because=" + e);
 
             return response;
@@ -246,57 +267,65 @@ public class AccountService {
 
     public RefreshTokenResponse refreshToken(String clientId, String userToken) {
 
-        Boolean isProcess = true;
         RefreshTokenResponse response = new RefreshTokenResponse();
 
         try {
+
+            String serviceRole = (String) RequestContextHolder.currentRequestAttributes().getAttribute("serviceRole",
+                    RequestAttributes.SCOPE_REQUEST);
+
             // Check Parameter
             if (StringUtil.isNullOrEmpty(userToken)) {
-                response.setErrorCode("404");
-                isProcess = false;
+                log.info("kunanonLog refreshToken Service userToken IsNullEmpty");
+                response.setErrorCode(er._001_INVALID_REQUEST);
+                return response;
             }
 
-            if (isProcess) {
-                if (StringUtil.isNullOrEmpty(clientId)) {
-                    response.setErrorCode("001");
-                    isProcess = false;
-                }
+            if (StringUtil.isNullOrEmpty(clientId)) {
+                log.info("kunanonLog refreshToken Service clientId IsNullEmpty");
+                response.setErrorCode(er._001_INVALID_REQUEST);
+                return response;
             }
 
-            if (isProcess) {
-                var clientIdApproved = (String) RequestContextHolder.currentRequestAttributes()
-                        .getAttribute("clientIdApproved", RequestAttributes.SCOPE_REQUEST);
-
-                // TODO: Validate Service_Token Flow
-
-                // TODO: Validate User_Token Flow
-
-                // TODO: refresh Token Flow
-
-                Optional<UserToken> optUserToken = userTokenRepository.findByToken(userToken);
-                if (optUserToken == null || optUserToken.isEmpty()) {
-                    return null;
-                }
-
-                UserToken getUserToken = optUserToken.get();
-
-                Optional<Clients> optClients = clientsRepository.findByClientid(clientIdApproved);
-                Clients clients = optClients.get();
-
-                Date refreshTokenTime = new Date();
-                Date endDate = new Date();
-                endDate.setMinutes(endDate.getSeconds() + clients.getConsentlifetime());
-
-                getUserToken.setExpiredate(endDate);
-                getUserToken.setRefreshdatetime(refreshTokenTime);
-                userTokenRepository.save(getUserToken);
-
-                response.setErrorCode("200");
+            // Validate Token Service Step 2
+            String authen_2 = authenUtil.ValidateTokenServiceStep2(userToken, clientId);
+            if (!StringUtil.isNullOrEmpty(authen_2)) {
+                return response;
             }
+
+            // checkRole
+            String checkRole = authenUtil.CheckRole(serviceRole, clientId);
+            if (!StringUtil.isNullOrEmpty(checkRole)) {
+                response.setErrorCode(checkRole);
+                return response;
+            }
+
+            // refresh Token Flow
+            Optional<UserToken> optUserToken = userTokenRepository.findByToken(userToken);
+            if (optUserToken == null || optUserToken.isEmpty()) {
+                log.info("kunanonLog refreshToken Service userToken IsNullEmpty");
+                response.setErrorCode(er._401_INVALID_SERVICE_TOKEN);
+                return response;
+            }
+
+            UserToken getUserToken = optUserToken.get();
+
+            Optional<Clients> optClients = clientsRepository.findByClientid(clientId);
+            Clients clients = optClients.get();
+
+            Date refreshTokenTime = new Date();
+            Date endDate = new Date();
+            endDate.setMinutes(endDate.getSeconds() + clients.getConsentlifetime());
+
+            getUserToken.setExpiredate(endDate);
+            getUserToken.setRefreshdatetime(refreshTokenTime);
+            userTokenRepository.save(getUserToken);
+
+            response.setErrorCode(er._200_SUCCESS);
 
             return response;
         } catch (Exception e) {
-            response.setErrorCode("500");
+            response.setErrorCode(er._500_INTERNAL_SERVER_ERROR);
             log.info("kunanonLog refreshToken Service occur : because=" + e);
 
             return response;
@@ -305,202 +334,177 @@ public class AccountService {
     }
 
     public CreateUserResponse createUser(CreateUserRequest createUserRequest) {
-        log.info("kunanonLog CreateUser Service");
-
-        String ACTIVE = "ACTIVE", INACTIVE = "INACTIVE", LOCK = "LOCK", citizen_id = "citizen_id",
-                passport_no = "passport_no";
         CreateUserResponse response = new CreateUserResponse();
         UserDto result = new UserDto();
-        Boolean isProcess = true;
 
         try {
 
-            var clientIdApproved = (String) RequestContextHolder.currentRequestAttributes()
-                    .getAttribute("clientIdApproved", RequestAttributes.SCOPE_REQUEST);
-
-            // TODO: Validate Service_Token Flow
-
-            // TODO: Validate User_Token Flow
-
-            // TODO: refresh Token Flow
+            String serviceRole = (String) RequestContextHolder.currentRequestAttributes().getAttribute("serviceRole",
+                    RequestAttributes.SCOPE_REQUEST);
 
             User user = new User();
 
-            if (isProcess) {
-                user.setClientid(createUserRequest.getClient_id());
+            // checkRole
+            String checkRole = authenUtil.CheckRole(serviceRole, createUserRequest.getClient_id());
+            if (!StringUtil.isNullOrEmpty(checkRole)) {
+                response.setErrorCode(checkRole);
+                return response;
             }
 
-            if (isProcess) {
-                if (createUserRequest.getStatus().toUpperCase().equals(ACTIVE)
-                        || createUserRequest.getStatus().toUpperCase().equals(INACTIVE)
-                        || createUserRequest.getStatus().toUpperCase().equals(LOCK)) {
-                    user.setStatus(createUserRequest.getStatus());
+            // Search in Client Table
+            Optional<Clients> clientIdApprove = clientsRepository.findByClientid(createUserRequest.getClient_id());
 
-                } else {
-                    response.setErrorCode("001");
-                    isProcess = false;
-                    log.info("kunanonLog CreateUser Service : getStatus invalid getStatus={}",
-                            createUserRequest.getStatus());
+            if (clientIdApprove == null || clientIdApprove.isEmpty()) {
+                log.info("kunanonLog CreateUser Service : clientId Not found clientId={}",
+                        createUserRequest.getClient_id());
+                response.setErrorCode(er._001_INVALID_REQUEST);
+                return response;
+            }
+            user.setClientid(createUserRequest.getClient_id());
+
+            if (createUserRequest.getStatus().toUpperCase().equals(cw.ACTIVE)
+                    || createUserRequest.getStatus().toUpperCase().equals(cw.INACTIVE)
+                    || createUserRequest.getStatus().toUpperCase().equals(cw.LOCK)) {
+                user.setStatus(createUserRequest.getStatus());
+
+            } else {
+                response.setErrorCode(er._001_INVALID_REQUEST);
+                log.info("kunanonLog CreateUser Service : getStatus invalid getStatus={}",
+                        createUserRequest.getStatus());
+                return response;
+            }
+
+            if (!StringUtil.isNullOrEmpty(createUserRequest.getOtp_status())) {
+                if (!createUserRequest.getOtp_status().toUpperCase().equals(cw.ACTIVE)
+                        && createUserRequest.getOtp_status().toUpperCase().equals(cw.LOCK)) {
+
+                    response.setErrorCode(er._001_INVALID_REQUEST);
+                    log.info("kunanonLog CreateUser Service : getStatus invalid getOtp_status={}",
+                            createUserRequest.getOtp_status());
+                    return response;
                 }
+
+                user.setOtpstatus(createUserRequest.getOtp_status());
             }
 
-            if (isProcess) {
-                if (!StringUtil.isNullOrEmpty(createUserRequest.getOtp_status())) {
-                    if (!(createUserRequest.getOtp_status().toUpperCase().equals(ACTIVE)
-                            || createUserRequest.getOtp_status().toUpperCase().equals(LOCK))) {
-
-                        response.setErrorCode("001");
-                        isProcess = false;
-                        log.info("kunanonLog CreateUser Service : getStatus invalid getOtp_status={}",
-                                createUserRequest.getOtp_status());
-                    }
-                    if (isProcess) {
-                        user.setOtpstatus(createUserRequest.getOtp_status());
-                    }
-                }
+            if (StringUtil.isNullOrEmpty(createUserRequest.getUser_id())) {
+                createUserRequest.setUser_id(getnerateUtil.generateKey(128));
             }
+            user.setUserid(createUserRequest.getUser_id());
 
-            if (isProcess) {
-                if (StringUtil.isNullOrEmpty(createUserRequest.getUser_id())) {
-                    createUserRequest.setUser_id(generateUtil.generateKey(128));
-                }
-            }
-            if (isProcess) {
-                user.setUserid(createUserRequest.getUser_id());
-            }
-
-            if (isProcess) {
-                if (StringUtil.isNullOrEmpty(createUserRequest.getId_type())) {
+            if (StringUtil.isNullOrEmpty(createUserRequest.getId_type())) {
+                user.setIdtype(createUserRequest.getId_type());
+                user.setCitizenid(createUserRequest.getCitizen_id());
+                user.setPassportno(createUserRequest.getPassport_no());
+            } else {
+                if (createUserRequest.getId_type().equals(cw.citizen_id)) {
                     user.setIdtype(createUserRequest.getId_type());
+                    if (StringUtil.isNullOrEmpty(createUserRequest.getCitizen_id())) {
+                        response.setErrorCode(er._001_INVALID_REQUEST);
+                        log.info("kunanonLog CreateUser Service : getCitizen_id null_empty");
+                        return response;
+                    }
+                    user.setCitizenid(createUserRequest.getCitizen_id());
+                    user.setPassportno(createUserRequest.getPassport_no());
+
+                } else if (createUserRequest.getId_type().equals(cw.passport_no)) {
+                    user.setIdtype(createUserRequest.getId_type());
+                    if (StringUtil.isNullOrEmpty(createUserRequest.getPassport_no())) {
+                        response.setErrorCode(er._001_INVALID_REQUEST);
+                        log.info("kunanonLog CreateUser Service : getPassport_no null_empty");
+                        return response;
+                    }
                     user.setCitizenid(createUserRequest.getCitizen_id());
                     user.setPassportno(createUserRequest.getPassport_no());
                 } else {
-                    if (createUserRequest.getId_type().equals(citizen_id)) {
-                        user.setIdtype(createUserRequest.getId_type());
-                        if (StringUtil.isNullOrEmpty(createUserRequest.getCitizen_id())) {
-                            response.setErrorCode("001");
-                            isProcess = false;
-                            log.info("kunanonLog CreateUser Service : getCitizen_id null_empty");
-                        }
-                        if (isProcess) {
-                            user.setCitizenid(createUserRequest.getCitizen_id());
-                            user.setPassportno(createUserRequest.getPassport_no());
-                        }
-
-                    } else if (createUserRequest.getId_type().equals(passport_no)) {
-                        user.setIdtype(createUserRequest.getId_type());
-                        if (StringUtil.isNullOrEmpty(createUserRequest.getPassport_no())) {
-                            response.setErrorCode("001");
-                            isProcess = false;
-                            log.info("kunanonLog CreateUser Service : getPassport_no null_empty");
-                        }
-                        if (isProcess) {
-                            user.setCitizenid(createUserRequest.getCitizen_id());
-                            user.setPassportno(createUserRequest.getPassport_no());
-                        }
-                    } else {
-                        response.setErrorCode("001");
-                        isProcess = false;
-                        log.info("kunanonLog CreateUser Service : getId_type invalid");
-                    }
+                    response.setErrorCode(er._001_INVALID_REQUEST);
+                    log.info("kunanonLog CreateUser Service : getId_type invalid");
+                    return response;
                 }
             }
 
-            if (isProcess) {
-                if (!StringUtil.isNullOrEmpty(createUserRequest.getDate_of_birth())) {
-                    if (isProcess) {
-                        try {
-
-                            SimpleDateFormat formatter = new SimpleDateFormat("yyyy-MM-dd");
-
-                            String dateInString = createUserRequest.getDate_of_birth();
-                            Date date = formatter.parse(dateInString);
-                            user.setDateofbirth(date);
-
-                        } catch (Exception e) {
-                            log.info("kunanonLog createUser Service getDate_of_birth ={} : because={}",
-                                    createUserRequest.getDate_of_birth(), e);
-                            response.setErrorCode("001");
-                        }
-                    }
-                } else {
-                    user.setDateofbirth(null);
-                }
-
-            }
-
-            if (isProcess) {
+            if (!StringUtil.isNullOrEmpty(createUserRequest.getDate_of_birth())) {
                 try {
-                    if (!StringUtil.isNullOrEmpty(createUserRequest.getRole())) {
-                        String sb = generateUtil.setStringRole(createUserRequest.getRole());
+                    SimpleDateFormat formatter = new SimpleDateFormat("yyyy-MM-dd");
 
-                        user.setRole(sb);
-                    } else {
-                        user.setRole(createUserRequest.getRole().toString());
-                    }
+                    String dateInString = createUserRequest.getDate_of_birth();
+                    Date date = formatter.parse(dateInString);
+                    user.setDateofbirth(date);
 
                 } catch (Exception e) {
-                    log.info("kunanonLog createUser Service getRole =" + createUserRequest.getRole() + ": because={}"
-                            + e);
-                    response.setErrorCode("500");
+                    log.info("kunanonLog createUser Service getDate_of_birth ={} : because={}",
+                            createUserRequest.getDate_of_birth(), e);
+                    response.setErrorCode(er._001_INVALID_REQUEST);
+                    return response;
                 }
+            } else {
+                user.setDateofbirth(null);
             }
 
-            if (isProcess) {// Nullable
-                user.setEmail(createUserRequest.getEmail());
-                user.setUsername(createUserRequest.getUsername());
-                user.setPassword(createUserRequest.getPassword());
-                user.setFirstname(createUserRequest.getFirstname());
-                user.setLastname(createUserRequest.getLastname());
-                user.setPin(createUserRequest.getPin());
-                user.setMobileno(createUserRequest.getMobile_no());
-                user.setMobilecountrycode(createUserRequest.getMobile_country_code());
-                user.setPasswordstatus(ACTIVE);
-                user.setPinstatus(ACTIVE);
-                user.setRegisterdate(new Date());
+            try {
+                if (!StringUtil.isNullOrEmpty(createUserRequest.getRole())) {
+                    String sb = getnerateUtil.setStringRole(createUserRequest.getRole());
 
-            }
-
-            if (isProcess) {
-                User userSaved = userRepository.save(user);
-
-                DateFormat dateFormat = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss");
-                String dateOfBirth = null;
-                String registerDate = null;
-
-                if (userSaved.getDateofbirth() != null) {
-                    dateOfBirth = dateFormat.format(userSaved.getDateofbirth());
-                }
-                if (userSaved.getRegisterdate() != null) {
-                    registerDate = dateFormat.format(userSaved.getRegisterdate());
+                    user.setRole(sb);
+                } else {
+                    user.setRole(createUserRequest.getRole().toString());
                 }
 
-                result.setId(String.valueOf(userSaved.getId()));
-                result.setName(userSaved.getFirstname());
-                result.setFamily_name(userSaved.getLastname());
-                result.setEmail(userSaved.getEmail());
-                result.setClient_id(userSaved.getClientid());
-                result.setUser_id(userSaved.getUserid());
-                result.setDate_of_birth(dateOfBirth);
-                result.setMobile_no(userSaved.getMobileno());
-                result.setMobile_country_code(userSaved.getMobilecountrycode());
-                result.setStatus((userSaved.getStatus()));
-                result.setOtp_status(userSaved.getOtpstatus());
-                result.setPin_status(userSaved.getPinstatus());
-                result.setCitizen_id(userSaved.getCitizenid());
-                result.setPassport_no(userSaved.getPassportno());
-                result.setId_type(userSaved.getIdtype());
-                result.setRole(generateUtil.getStringRole(userSaved.getRole()));
-                result.setRegister_date(registerDate);
-                result.setCif_no(userSaved.getCifno());
-
-                response.setResult(result);
-                response.setErrorCode("200");
+            } catch (Exception e) {
+                log.info("kunanonLog createUser Service getRole =" + createUserRequest.getRole() + ": because={}" + e);
+                throw e;
             }
+
+            user.setEmail(createUserRequest.getEmail());
+            user.setUsername(createUserRequest.getUsername());
+            user.setPassword(createUserRequest.getPassword());
+            user.setFirstname(createUserRequest.getFirstname());
+            user.setLastname(createUserRequest.getLastname());
+            user.setPin(createUserRequest.getPin());
+            user.setMobileno(createUserRequest.getMobile_no());
+            user.setMobilecountrycode(createUserRequest.getMobile_country_code());
+            user.setPasswordstatus(cw.ACTIVE);
+            user.setPinstatus(cw.ACTIVE);
+            user.setRegisterdate(new Date());
+
+            User userSaved = userRepository.save(user);
+
+            DateFormat dateFormat = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss");
+            String dateOfBirth = null;
+            String registerDate = null;
+
+            if (userSaved.getDateofbirth() != null) {
+                dateOfBirth = dateFormat.format(userSaved.getDateofbirth());
+            }
+            if (userSaved.getRegisterdate() != null) {
+                registerDate = dateFormat.format(userSaved.getRegisterdate());
+            }
+
+            result.setId(String.valueOf(userSaved.getId()));
+            result.setName(userSaved.getFirstname());
+            result.setFamily_name(userSaved.getLastname());
+            result.setEmail(userSaved.getEmail());
+            result.setClient_id(userSaved.getClientid());
+            result.setUser_id(userSaved.getUserid());
+            result.setDate_of_birth(dateOfBirth);
+            result.setMobile_no(userSaved.getMobileno());
+            result.setMobile_country_code(userSaved.getMobilecountrycode());
+            result.setStatus((userSaved.getStatus()));
+            result.setOtp_status(userSaved.getOtpstatus());
+            result.setPin_status(userSaved.getPinstatus());
+            result.setCitizen_id(userSaved.getCitizenid());
+            result.setPassport_no(userSaved.getPassportno());
+            result.setId_type(userSaved.getIdtype());
+            result.setRole(getnerateUtil.getStringRole(userSaved.getRole()));
+            result.setRegister_date(registerDate);
+            result.setCif_no(userSaved.getCifno());
+
+            response.setResult(result);
+            response.setErrorCode(er._200_SUCCESS);
 
             return response;
         } catch (Exception e) {
-            response.setErrorCode("500");
+            response.setErrorCode(er._500_INTERNAL_SERVER_ERROR);
             log.info("kunanonLog createUser Service occur : because=" + e);
 
             return response;
@@ -515,22 +519,29 @@ public class AccountService {
         String citizen_id = "citizen_id", passport_no = "passport_no";
 
         try {
-            var clientIdApproved = (String) RequestContextHolder.currentRequestAttributes()
-                    .getAttribute("clientIdApproved", RequestAttributes.SCOPE_REQUEST);
 
-            // TODO: Validate Service_Token Flow
+            String serviceRole = (String) RequestContextHolder.currentRequestAttributes().getAttribute("serviceRole",
+                    RequestAttributes.SCOPE_REQUEST);
 
-            // TODO: Validate User_Token Flow
-
-            // TODO: refresh Token Flow
-
-            // update Flow
-            User opt = userRepository.findByUserid(userId).stream().findFirst().orElse(null);
-            if (opt == null) {
-                return null;
+            // checkRole
+            String checkRole = authenUtil.CheckRole(serviceRole, updateUserRequest.getClient_id());
+            if (!StringUtil.isNullOrEmpty(checkRole)) {
+                log.info("kunanonLog updateUser Service checkRole invalid");
+                response.setErrorCode(er._001_INVALID_REQUEST);
+                return response;
             }
 
-            User user = opt;
+            // update Flow
+            User user = em
+                    .createQuery("select u from User u where u.userid = '" + userId + "' AND u.status = '" + cw.ACTIVE
+                            + "' AND u.passwordstatus = '" + cw.ACTIVE + "' ", User.class)
+                    .getResultList().stream().findFirst().orElse(null);
+            if (user == null) {
+                log.info("kunanonLog updateUser Service user not found");
+                response.setErrorCode(er._001_INVALID_REQUEST);
+                return response;
+            }
+
             if (!StringUtil.isNullOrEmpty(data.getFirstname())) {
                 user.setFirstname(data.getFirstname());
             }
@@ -553,8 +564,8 @@ public class AccountService {
                 if (data.getId_type().equals(citizen_id)) {
 
                     if (StringUtil.isNullOrEmpty(data.getCitizen_id())) {
-                        response.setErrorCode("001");
-                        log.info("kunanonLog createUser Service getCitizen_id null");
+                        response.setErrorCode(er._001_INVALID_REQUEST);
+                        log.info("kunanonLog updateUser Service getCitizen_id null");
 
                         return response;
                     }
@@ -569,8 +580,8 @@ public class AccountService {
                 } else if (data.getId_type().equals(passport_no)) {
 
                     if (StringUtil.isNullOrEmpty(data.getPassport_no())) {
-                        response.setErrorCode("001");
-                        log.info("kunanonLog createUser Service getPassport_no null");
+                        response.setErrorCode(er._001_INVALID_REQUEST);
+                        log.info("kunanonLog updateUser Service getPassport_no null");
 
                         return response;
 
@@ -587,7 +598,7 @@ public class AccountService {
 
                 } else {
                     log.info("kunanonLog updateUser Service error occur getId_type={}", data.getId_type());
-                    response.setErrorCode("001");
+                    response.setErrorCode(er._001_INVALID_REQUEST);
                 }
             } else {
                 if (!StringUtil.isNullOrEmpty(data.getCitizen_id())) {
@@ -630,15 +641,15 @@ public class AccountService {
             result.setCitizen_id(userSaved.getCitizenid());
             result.setPassport_no(userSaved.getPassportno());
             result.setId_type(userSaved.getIdtype());
-            result.setRole(generateUtil.getStringRole(userSaved.getRole()));
+            result.setRole(getnerateUtil.getStringRole(userSaved.getRole()));
             result.setCif_no(userSaved.getCifno());
 
             response.setResult(result);
-            response.setErrorCode("200");
+            response.setErrorCode(er._200_SUCCESS);
 
             return response;
         } catch (Exception e) {
-            response.setErrorCode("500");
+            response.setErrorCode(er._500_INTERNAL_SERVER_ERROR);
             log.info("kunanonLog updateUser Service occur : because=" + e);
 
             return response;
@@ -652,28 +663,29 @@ public class AccountService {
 
         try {
 
-            var clientIdApproved = (String) RequestContextHolder.currentRequestAttributes()
-                    .getAttribute("clientIdApproved", RequestAttributes.SCOPE_REQUEST);
+            String serviceRole = (String) RequestContextHolder.currentRequestAttributes().getAttribute("serviceRole",
+                    RequestAttributes.SCOPE_REQUEST);
 
-            // TODO: Validate Service_Token Flow
-
-            // TODO: Validate User_Token Flow
-
-            // TODO: refresh Token Flow
-
-            // deleteUser Flow
-            User opt = userRepository.findByUserid(userId).stream().findFirst().orElse(null);
-            if (opt == null) {
-                return null;
+            // checkRole
+            String checkRole = authenUtil.CheckRole(serviceRole, deleteUserRequest.getClient_id());
+            if (!StringUtil.isNullOrEmpty(checkRole)) {
+                response.setErrorCode(checkRole);
+                return response;
             }
 
-            User user = opt;
-            userRepository.delete(user);
+            // deleteUser Flow
+            User user = em
+                    .createQuery("select u from User u where u.userid = '" + userId + "' AND u.passwordstatus = '"
+                            + cw.ACTIVE + "' AND u.status = '" + cw.ACTIVE + "' ", User.class)
+                    .getResultList().stream().findFirst().orElse(null);
+            // User user = opt;
+            user.setStatus(cw.DELETE);
+            userRepository.save(user);
 
-            response.setErrorCode("200");
+            response.setErrorCode(er._200_SUCCESS);
             return response;
         } catch (Exception e) {
-            response.setErrorCode("500");
+            response.setErrorCode(er._500_INTERNAL_SERVER_ERROR);
             log.info("kunanonLog deleteUser Service occur : because=" + e);
 
             return response;
@@ -687,22 +699,25 @@ public class AccountService {
 
         try {
 
-            var clientIdApproved = (String) RequestContextHolder.currentRequestAttributes()
-                    .getAttribute("clientIdApproved", RequestAttributes.SCOPE_REQUEST);
+            String serviceRole = (String) RequestContextHolder.currentRequestAttributes().getAttribute("serviceRole",
+                    RequestAttributes.SCOPE_REQUEST);
 
-            // TODO: Validate Service_Token Flow
-
-            // TODO: Validate User_Token Flow
-
-            // TODO: refresh Token Flow
+            // checkRole
+            String checkRole = authenUtil.CheckRole(serviceRole, setPasswordRequest.getClient_id());
+            if (!StringUtil.isNullOrEmpty(checkRole)) {
+                response.setErrorCode(checkRole);
+                return response;
+            }
 
             // setPassword Flow
-            String status = "ACTIVE";
-            User user = em.createQuery(
-                    "select u from User u where u.userid = '" + userId + "' AND u.passwordstatus = '" + status + "'",
-                    User.class).getResultList().stream().findFirst().orElse(null);
+            User user = em
+                    .createQuery("select u from User u where u.userid = '" + userId + "' AND u.passwordstatus = '"
+                            + cw.ACTIVE + "' AND u.status = '" + cw.ACTIVE + "' ", User.class)
+                    .getResultList().stream().findFirst().orElse(null);
             if (user == null) {
-                return null;
+                log.info("kunanonLog deleteUser Service user not found ");
+                response.setErrorCode(er._001_INVALID_REQUEST);
+                return response;
             }
 
             User newUser = new User();
@@ -717,17 +732,18 @@ public class AccountService {
             newUser.setPassword(setPasswordRequest.getPassword());
             newUser.setLastchangepwd(date);
 
-            user.setPasswordstatus("INACTIVE");
+            user.setPasswordstatus(cw.INACTIVE);
+            user.setStatus(cw.INACTIVE);
 
             List<User> listUser = new ArrayList<>();
             listUser.add(user);
             listUser.add(newUser);
             userRepository.saveAll(listUser);
 
-            response.setErrorCode("200");
+            response.setErrorCode(er._200_SUCCESS);
             return response;
         } catch (Exception e) {
-            response.setErrorCode("500");
+            response.setErrorCode(er._500_INTERNAL_SERVER_ERROR);
             log.info("kunanonLog setPassword Service occur : because=" + e);
 
             return response;
@@ -742,18 +758,34 @@ public class AccountService {
 
         try {
 
-            var clientIdApproved = (String) RequestContextHolder.currentRequestAttributes()
-                    .getAttribute("clientIdApproved", RequestAttributes.SCOPE_REQUEST);
+            String serviceRole = (String) RequestContextHolder.currentRequestAttributes().getAttribute("serviceRole",
+                    RequestAttributes.SCOPE_REQUEST);
 
-            // TODO: Validate Service_Token Flow
+            // checkRole
+            String checkRole = authenUtil.CheckRole(serviceRole, listUserRequest.getClient_id());
+            if (!StringUtil.isNullOrEmpty(checkRole)) {
+                response.setErrorCode(checkRole);
+                return response;
+            }
+            String strDateFrom = "";
+            String strDateTo = "";
+            if (listUserRequest.getRegister_date_from() != null) {
 
-            // TODO: Validate User_Token Flow
-
-            // TODO: refresh Token Flow
+                Date dateThaiFrom = dateTimeUtil.ConvertDateTimeToThai(listUserRequest.getRegister_date_from());
+                strDateFrom = dateTimeUtil.GetDateInFormatThaiString(dateThaiFrom);
+            }
+            if (listUserRequest.getRegister_date_to() != null) {
+                Date dateThaiTo = dateTimeUtil.ConvertDateTimeToThai(listUserRequest.getRegister_date_to());
+                strDateTo = dateTimeUtil.GetDateInFormatThaiString(dateThaiTo);
+            }
 
             // listUserInfo Flow
             var data = listUserRequest;
-            String sql = "select u from User u WHERE clientid = '" + data.getClient_id() + "' ";
+            if (data.getInclude_delete() == null) {
+                data.setInclude_delete(false);
+            }
+
+            String sql = "select u from User u WHERE u.clientid = '" + data.getClient_id() + "' ";
             if (!StringUtil.isNullOrEmpty(data.getUsername())) {
                 sql = sql + "AND u.username = '" + data.getUsername() + "' ";
             }
@@ -779,11 +811,11 @@ public class AccountService {
             if (!StringUtil.isNullOrEmpty(data.getEmail())) {
                 sql = sql + "AND u.email = '" + data.getEmail() + "' ";
             }
-            if (!StringUtil.isNullOrEmpty(data.getRegister_date_from())) {
-                sql = sql + "AND u.registerdate >= '" + data.getRegister_date_from() + "' ";
+            if (!StringUtil.isNullOrEmpty(strDateFrom)) {
+                sql = sql + "AND u.registerdate >= '" + strDateFrom + "' ";
             }
-            if (!StringUtil.isNullOrEmpty(data.getRegister_date_to())) {
-                sql = sql + "AND u.registerdate <= '" + data.getRegister_date_to() + "' ";
+            if (!StringUtil.isNullOrEmpty(strDateTo)) {
+                sql = sql + "AND u.registerdate <= '" + strDateTo + "' ";
             }
             if (!StringUtil.isNullOrEmpty(data.getStatus())) {
                 if (data.getStatus().equals(ACTIVE) || data.getStatus().equals(INACTIVE)
@@ -805,6 +837,9 @@ public class AccountService {
                 if (data.getPin_status().equals(ACTIVE) || data.getPin_status().equals(LOCK)) {
                     sql = sql + "AND u.pinstatus = '" + data.getPin_status() + "' ";
                 }
+            }
+            if (!data.getInclude_delete()) {
+                sql = sql + "AND u.status != '" + cw.DELETE + "' ";
             }
 
             Query query = em.createQuery(sql);
@@ -838,7 +873,7 @@ public class AccountService {
                 }
 
                 UserDto userDto = new UserDto();
-                userDto.setUser_id(Long.toString(item.getId()));
+                userDto.setId(Long.toString(item.getId()));
                 userDto.setName(item.getFirstname());
                 userDto.setFamily_name(item.getLastname());
                 userDto.setEmail(item.getEmail());
@@ -853,7 +888,7 @@ public class AccountService {
                 userDto.setCitizen_id(item.getCitizenid());
                 userDto.setPassport_no(item.getPassportno());
                 userDto.setId_type(item.getIdtype());
-                userDto.setRole(generateUtil.getStringRole(item.getRole()));
+                userDto.setRole(getnerateUtil.getStringRole(item.getRole()));
                 userDto.setRegister_date(registerDate);
                 userDto.setCif_no(item.getCifno());
 
@@ -862,13 +897,13 @@ public class AccountService {
             }
 
             response.setResult(listDto);
-            response.setErrorCode("200");
+            response.setErrorCode(er._200_SUCCESS);
             return response;
 
         } catch (
 
         Exception e) {
-            response.setErrorCode("500");
+            response.setErrorCode(er._500_INTERNAL_SERVER_ERROR);
             log.info("kunanonLog listUserInfo Service occur : because=" + e);
 
             return response;

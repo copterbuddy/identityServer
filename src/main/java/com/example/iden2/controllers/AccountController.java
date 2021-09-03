@@ -25,6 +25,7 @@ import com.example.iden2.dto.base.ErrorEntity;
 import com.example.iden2.dto.base.ErrorEntityWithLang;
 import com.example.iden2.repository.UserRepository;
 import com.example.iden2.service.AccountService;
+import com.example.iden2.util.ErrorWording;
 import com.example.iden2.util.ExceptionUtil;
 import com.example.iden2.util.GenerateUtil;
 
@@ -57,7 +58,10 @@ public class AccountController {
     private ExceptionUtil exceptionUtil;
 
     @Autowired
-    private GenerateUtil generateUtil;
+    private GenerateUtil getnerateUtil;
+
+    @Autowired
+    private ErrorWording er;
 
     @PostMapping("/login")
     public ResponseEntity<Object> login(@RequestBody LoginRequest loginRequest) {
@@ -93,6 +97,7 @@ public class AccountController {
 
             return ResponseEntity.ok(response);
         } catch (Exception e) {
+            log.info("kunanonLog account Controller login : " + e);
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
         }
 
@@ -102,10 +107,22 @@ public class AccountController {
     public ResponseEntity<Object> userInfo(@RequestBody UserInfoRequest userInfoRequest) {
 
         try {
+
             UserInfoResponse response = new UserInfoResponse();
             ErrorEntity errorEntity = new ErrorEntity();
 
-            response = accountService.userInfoSerive(userInfoRequest.getClient_id(), userInfoRequest.getUser_token());
+            if (StringUtil.isNullOrEmpty(userInfoRequest.getClient_id())) {
+                errorEntity.setErrorCode(er._001_INVALID_REQUEST);
+            }
+            if (StringUtil.isNullOrEmpty(userInfoRequest.getUser_token())
+                    || !userInfoRequest.getUser_token().startsWith("Bearer ")) {
+                errorEntity.setErrorCode(er._001_INVALID_REQUEST);
+            }
+
+            String token = userInfoRequest.getUser_token().substring(7);
+
+            if (StringUtil.isNullOrEmpty(errorEntity.getErrorCode()))
+                response = accountService.userInfoSerive(userInfoRequest.getClient_id(), token);
 
             if (response == null) {
                 return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
@@ -119,6 +136,7 @@ public class AccountController {
 
             return ResponseEntity.ok(response);
         } catch (Exception e) {
+            log.info("kunanonLog account Controller userInfo : " + e);
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
         }
 
@@ -131,8 +149,18 @@ public class AccountController {
             RefreshTokenResponse response = new RefreshTokenResponse();
             ErrorEntityWithLang errorEntity = new ErrorEntityWithLang();
 
-            response = accountService.refreshToken(refreshTokenRequest.getClient_id(),
-                    refreshTokenRequest.getUser_token());
+            if (StringUtil.isNullOrEmpty(refreshTokenRequest.getClient_id())) {
+                errorEntity.setErrorCode(er._001_INVALID_REQUEST);
+            }
+            if (StringUtil.isNullOrEmpty(refreshTokenRequest.getUser_token())
+                    || !refreshTokenRequest.getUser_token().startsWith("Bearer ")) {
+                errorEntity.setErrorCode(er._001_INVALID_REQUEST);
+            }
+
+            String token = refreshTokenRequest.getUser_token().substring(7);
+
+            if (StringUtil.isNullOrEmpty(errorEntity.getErrorCode()))
+                response = accountService.refreshToken(refreshTokenRequest.getClient_id(), token);
 
             if (response == null) {
                 return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
@@ -287,7 +315,7 @@ public class AccountController {
                 Pattern p = Pattern.compile("\\d{4}-\\d{2}-\\d{2} \\d{2}:\\d{2}:\\d{2}");
                 Matcher dateFrom = p.matcher(listUserRequest.getRegister_date_from());
                 if (!dateFrom.matches()) {
-                    response.setErrorCode("001");
+                    response.setErrorCode(er._001_INVALID_REQUEST);
                     log.info("kunanonLog account Controller listUserInfo dateFrom invalid");
                 }
             }
@@ -296,7 +324,7 @@ public class AccountController {
                 Pattern p = Pattern.compile("\\d{4}-\\d{2}-\\d{2} \\d{2}:\\d{2}:\\d{2}");
                 Matcher dateTo = p.matcher(listUserRequest.getRegister_date_to());
                 if (!dateTo.matches()) {
-                    response.setErrorCode("001");
+                    response.setErrorCode(er._001_INVALID_REQUEST);
                     log.info("kunanonLog account Controller listUserInfo datetTo invalid");
                 }
             }
